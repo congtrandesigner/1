@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "messages": {
+      ".read": "auth != null",
+      ".indexOn": ["time"],
+      "$messageId": {
+        ".write": "auth != null && !data.exists() && newData.child('senderId').val() == auth.uid",
+        ".validate": "newData.hasChildren(['text', 'senderId', 'time']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 1000 && newData.child('senderId').isString() && newData.child('time').isNumber()"
+      }
+    }
+  }
+}

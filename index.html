@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f6fa" />
+    <title>Phòng chat</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #202432;
+        background: #f5f6fa;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+
+      .chat {
+        width: min(100%, 620px);
+        height: min(780px, calc(100vh - 40px));
+        min-height: 420px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #fff;
+        border: 1px solid #e8eaf0;
+        border-radius: 20px;
+        box-shadow: 0 16px 50px #20243212;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 18px 22px;
+        border-bottom: 1px solid #eef0f4;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #f3ae42;
+      }
+
+      .status-dot.online { background: #35b779; }
+
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 650;
+      }
+
+      .status {
+        margin: 3px 0 0;
+        color: #858b99;
+        font-size: 12px;
+      }
+
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 22px;
+        scroll-behavior: smooth;
+      }
+
+      .empty {
+        margin: auto;
+        color: #9298a5;
+        font-size: 14px;
+        text-align: center;
+      }
+
+      .message {
+        max-width: min(82%, 430px);
+        align-self: flex-start;
+        padding: 10px 13px 8px;
+        overflow-wrap: anywhere;
+        background: #f0f2f7;
+        border-radius: 15px 15px 15px 5px;
+        white-space: pre-wrap;
+      }
+
+      .message.mine {
+        align-self: flex-end;
+        color: #fff;
+        background: #5368e8;
+        border-radius: 15px 15px 5px 15px;
+      }
+
+      .message p { margin: 0; line-height: 1.45; }
+
+      .time {
+        display: block;
+        margin-top: 5px;
+        color: #9298a5;
+        font-size: 10px;
+        text-align: right;
+      }
+
+      .mine .time { color: #dce1ff; }
+
+      form {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        padding: 15px 18px;
+        border-top: 1px solid #eef0f4;
+      }
+
+      textarea {
+        min-width: 0;
+        min-height: 44px;
+        max-height: 120px;
+        flex: 1;
+        resize: none;
+        padding: 12px 14px;
+        color: inherit;
+        font: inherit;
+        line-height: 1.35;
+        background: #f5f6fa;
+        border: 1px solid transparent;
+        border-radius: 14px;
+        outline: none;
+      }
+
+      textarea:focus { border-color: #b7c0ff; }
+
+      button {
+        height: 44px;
+        padding: 0 18px;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        background: #5368e8;
+        border: 0;
+        border-radius: 13px;
+        cursor: pointer;
+      }
+
+      button:hover { background: #4358d8; }
+      button:disabled { opacity: .6; cursor: wait; }
+
+      @media (max-width: 480px) {
+        body { padding: 0; }
+        .chat {
+          width: 100%;
+          height: 100vh;
+          min-height: 0;
+          border: 0;
+          border-radius: 0;
+        }
+        header { padding: 16px 18px; }
+        .messages { padding: 18px; }
+        form { padding: 12px; }
+        button { padding: 0 14px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="chat" aria-label="Phòng chat">
+      <header>
+        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+        <div>
+          <h1>Phòng chat</h1>
+          <p class="status" id="connectionStatus" role="status">Đang kết nối...</p>
+        </div>
+      </header>
+      <section class="messages" id="messages" aria-live="polite" aria-label="Tin nhắn">
+        <p class="empty" id="emptyState">Chưa có tin nhắn. Bắt đầu trò chuyện nhé!</p>
+      </section>
+      <form id="messageForm">
+        <textarea
+          id="messageInput"
+          aria-label="Tin nhắn"
+          placeholder="Nhập tin nhắn..."
+          maxlength="1000"
+          rows="1"
+          required
+        ></textarea>
+        <button id="sendButton" type="submit">Gửi</button>
+      </form>
+    </main>
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+      import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+      import {
+        getDatabase,
+        limitToLast,
+        onChildAdded,
+        onValue,
+        orderByChild,
+        push,
+        query,
+        ref,
+        serverTimestamp,
+      } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+      const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+        databaseURL: "YOUR_DATABASE_URL",
+        projectId: "YOUR_PROJECT_ID",
+        appId: "YOUR_APP_ID",
+      };
+      const messageList = document.querySelector("#messages");
+      const emptyState = document.querySelector("#emptyState");
+      const input = document.querySelector("#messageInput");
+      const form = document.querySelector("#messageForm");
+      const sendButton = document.querySelector("#sendButton");
+      const statusText = document.querySelector("#connectionStatus");
+      const statusDot = document.querySelector("#statusDot");
+      let senderId = "";
+      let connected = false;
+      const seenMessages = new Set();
+
+      function setStatus(message, isOnline = false) {
+        statusText.textContent = message;
+        statusDot.classList.toggle("online", isOnline);
+        sendButton.disabled = !isOnline;
+      }
+
+      function showMessage(message) {
+        if (seenMessages.has(message.id)) return;
+        seenMessages.add(message.id);
+        emptyState.hidden = true;
+
+        const item = document.createElement("article");
+        item.className = `message${message.senderId === senderId ? " mine" : ""}`;
+        const text = document.createElement("p");
+        text.textContent = message.text;
+        const time = document.createElement("time");
+        time.className = "time";
+        time.dateTime = new Date(message.time).toISOString();
+        time.textContent = new Intl.DateTimeFormat("vi-VN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(message.time));
+        item.append(text, time);
+        messageList.append(item);
+        messageList.scrollTop = messageList.scrollHeight;
+      }
+
+      async function connect() {
+        if (Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"))) {
+          setStatus("Cần điền cấu hình Firebase trong file HTML.");
+          return;
+        }
+
+        try {
+          const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          const database = getDatabase(app);
+          const credential = await signInAnonymously(auth);
+          senderId = credential.user.uid;
+
+          const messagesQuery = query(
+            ref(database, "messages"),
+            orderByChild("time"),
+            limitToLast(100),
+          );
+          onChildAdded(
+            messagesQuery,
+            (snapshot) => {
+              const data = snapshot.val();
+              if (!data || typeof data.text !== "string" || !Number.isFinite(data.time)) return;
+              showMessage({ ...data, id: snapshot.key });
+            },
+            (error) => setStatus(`Không tải được tin nhắn: ${error.message}`),
+          );
+
+          onValue(
+            ref(database, ".info/connected"),
+            (snapshot) => {
+              connected = snapshot.val() === true;
+              setStatus(
+                connected ? "Đang hoạt động" : "Mất kết nối, đang thử lại...",
+                connected,
+              );
+            },
+            (error) => setStatus(`Lỗi kết nối: ${error.message}`),
+          );
+        } catch (error) {
+          setStatus(`Không kết nối được Firebase: ${error.message}`);
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text || !connected || !senderId) return;
+
+        sendButton.disabled = true;
+        try {
+          const database = getDatabase();
+          await push(ref(database, "messages"), {
+            text,
+            senderId,
+            time: serverTimestamp(),
+          });
+          input.value = "";
+          input.style.height = "auto";
+          input.focus();
+        } catch (error) {
+          setStatus(`Không gửi được tin nhắn: ${error.message}`, connected);
+        } finally {
+          sendButton.disabled = !connected;
+        }
+      });
+
+      input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      connect();
+    </script>
+  </body>
+</html>
