@@ -102,13 +102,39 @@
 
       .message p { margin: 0; line-height: 1.45; }
 
+      .message-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 9px;
+        margin-top: 5px;
+      }
+
       .time {
         display: block;
-        margin-top: 5px;
         color: #9298a5;
         font-size: 10px;
-        text-align: right;
       }
+
+      .delete-message {
+        width: auto;
+        height: auto;
+        padding: 0;
+        color: #858b99;
+        font-size: 10px;
+        font-weight: 500;
+        background: transparent;
+        border-radius: 0;
+      }
+
+      .delete-message:hover {
+        color: #d14343;
+        background: transparent;
+        text-decoration: underline;
+      }
+
+      .mine .delete-message { color: #dce1ff; }
+      .mine .delete-message:hover { color: #fff; }
 
       .mine .time { color: #dce1ff; }
 
@@ -197,14 +223,18 @@
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
       import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
       import {
+        endAt,
+        get,
         getDatabase,
         limitToLast,
         onChildAdded,
+        onChildRemoved,
         onValue,
         orderByChild,
         push,
         query,
         ref,
+        remove,
         serverTimestamp,
       } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 
@@ -222,9 +252,11 @@
       const sendButton = document.querySelector("#sendButton");
       const statusText = document.querySelector("#connectionStatus");
       const statusDot = document.querySelector("#statusDot");
+      const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
       let senderId = "";
       let connected = false;
       const seenMessages = new Set();
+      const messageNodes = new Map();
 
       function setStatus(message, isOnline = false) {
         statusText.textContent = message;
@@ -248,9 +280,46 @@
           hour: "2-digit",
           minute: "2-digit",
         }).format(new Date(message.time));
-        item.append(text, time);
+        const footer = document.createElement("div");
+        footer.className = "message-footer";
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "delete-message";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Xóa";
+        deleteButton.setAttribute("aria-label", "Xóa tin nhắn");
+        deleteButton.addEventListener("click", async () => {
+          if (!window.confirm("Xóa tin nhắn này khỏi phòng chat?")) return;
+          deleteButton.disabled = true;
+          try {
+            await remove(ref(getDatabase(), `messages/${message.id}`));
+          } catch (error) {
+            deleteButton.disabled = false;
+            setStatus(`Không xóa được tin nhắn: ${error.message}`, connected);
+          }
+        });
+        footer.append(time, deleteButton);
+        item.append(text, footer);
         messageList.append(item);
+        messageNodes.set(message.id, item);
         messageList.scrollTop = messageList.scrollHeight;
+      }
+
+      async function cleanExpiredMessages(database) {
+        const cutoff = Date.now() - SIX_HOURS_MS;
+        const expiredQuery = query(
+          ref(database, "messages"),
+          orderByChild("time"),
+          endAt(cutoff),
+        );
+        const snapshot = await get(expiredQuery);
+        const deletions = [];
+        snapshot.forEach((childSnapshot) => {
+          const message = childSnapshot.val();
+          if (typeof message?.time === "number" && message.time <= cutoff) {
+            deletions.push(remove(ref(database, `messages/${childSnapshot.key}`)));
+          }
+        });
+        await Promise.all(deletions);
       }
 
       async function connect() {
@@ -266,6 +335,15 @@
           const credential = await signInAnonymously(auth);
           senderId = credential.user.uid;
 
+          window.setInterval(() => {
+            cleanExpiredMessages(database).catch((error) => {
+              setStatus(`Không tự xóa được tin cũ: ${error.message}`, connected);
+            });
+          }, 60 * 1000);
+          cleanExpiredMessages(database).catch((error) => {
+            setStatus(`Không tự xóa được tin cũ: ${error.message}`, connected);
+          });
+
           const messagesQuery = query(
             ref(database, "messages"),
             orderByChild("time"),
@@ -276,10 +354,20 @@
             (snapshot) => {
               const data = snapshot.val();
               if (!data || typeof data.text !== "string" || !Number.isFinite(data.time)) return;
+              if (Date.now() - data.time >= SIX_HOURS_MS) return;
               showMessage({ ...data, id: snapshot.key });
             },
             (error) => setStatus(`Không tải được tin nhắn: ${error.message}`),
           );
+
+          onChildRemoved(messagesQuery, (snapshot) => {
+            const item = messageNodes.get(snapshot.key);
+            if (!item) return;
+            item.remove();
+            messageNodes.delete(snapshot.key);
+            seenMessages.delete(snapshot.key);
+            emptyState.hidden = messageNodes.size > 0;
+          });
 
           onValue(
             ref(database, ".info/connected"),
