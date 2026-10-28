@@ -16,6 +16,7 @@ Mở `index.html` qua hosting tĩnh hoặc máy chủ local có HTTPS/localhost.
 
 ## Lưu ý
 
-- Đây là một phòng chat chung: ai có URL đều có thể đọc và gửi tin nhắn.
-- Firebase giữ tin nhắn trên Realtime Database. Mỗi trình duyệt chỉ tải 100 tin nhắn gần nhất.
+- Đây là một phòng chat chung: ai có URL đều có thể đọc, gửi và xóa mọi tin nhắn.
+- Ứng dụng tự dọn tin nhắn sau 6 giờ khi có người mở phòng chat (kiểm tra mỗi phút). Nếu không ai mở phòng, tin quá hạn sẽ được dọn khi có người vào lại.
+- Mỗi trình duyệt chỉ tải 100 tin nhắn gần nhất.
 - Cấu hình Firebase Web hiển thị trong HTML là bình thường; quyền truy cập được giới hạn bằng Authentication và Database Rules. Không mở quyền đọc/ghi công khai trong Rules.
